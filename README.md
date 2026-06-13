@@ -1,15 +1,25 @@
 # lrc-audio-player
 
 Sync LRC (and word-level "enhanced" LRC) lyrics to an `HTMLAudioElement`
-from a single constructor. Gives you the current line, the next line,
-word-level highlighting, seeking by line, and change events — without
-re-scanning the whole lyric file on every `timeupdate`.
+with accurate seeking. Automatically converts variable-bitrate (VBR)
+audio to constant bitrate (CBR) for precise `currentTime` synchronization
+— critical for lyrics that must stay locked to the audio.
 
 ## Install
 
 ```bash
 npm install lrc-audio-player
 ```
+
+**Optional:** If you need CBR conversion (recommended), also install:
+
+```bash
+npm install @ffmpeg/ffmpeg @ffmpeg/util
+```
+
+> `ffmpeg.wasm` is loaded on-demand and only when needed. If you skip
+> installing it, you must set `skipCBR: true` and provide CBR-encoded
+> audio files yourself.
 
 ## Quick start
 
@@ -18,7 +28,8 @@ import { LyricPlayer } from 'lrc-audio-player';
 
 const lrcText = await fetch('/song.lrc').then((r) => r.text());
 
-const player = new LyricPlayer({
+// Async factory — handles CBR conversion in the background
+const player = await LyricPlayer.create({
   audio: '/song.mp3',
   lyrics: lrcText,
 });
@@ -34,8 +45,19 @@ You can also hand it an existing `<audio>` element instead of a URL:
 
 ```ts
 const audioEl = document.querySelector('audio')!;
-const player = new LyricPlayer({ audio: audioEl, lyrics: lrcText });
+const player = await LyricPlayer.create({ audio: audioEl, lyrics: lrcText });
 ```
+
+## Why CBR conversion?
+
+Browsers estimate `audio.currentTime` from average bitrate when seek tables
+are missing. With VBR files, this causes drift — lyrics appear early or
+late after seeking. **CBR guarantees linear time-to-byte mapping**, so
+seeking is sample-accurate.
+
+By default, `lrc-audio-player` detects VBR MP3s and re-encodes them to
+CBR using `ffmpeg.wasm` (all in-browser, no server needed). If your audio
+is already CBR, set `skipCBR: true` to skip conversion.
 
 ## Lyric formats
 
@@ -47,7 +69,7 @@ const player = new LyricPlayer({ audio: audioEl, lyrics: lrcText });
   use `lyrics: { type: 'json', data: [...] }`
 
 ```ts
-new LyricPlayer({
+await LyricPlayer.create({
   audio: '/song.mp3',
   lyrics: [
     { time: 0, text: 'First line' },
@@ -58,13 +80,30 @@ new LyricPlayer({
 
 ## API
 
-### `new LyricPlayer(options)`
+### `LyricPlayer.create(options)` (recommended)
 
-| Option     | Type                                              | Description                                  |
-| ---------- | ------------------------------------------------- | --------------------------------------------- |
-| `audio`    | `string \| HTMLAudioElement`                      | Audio source URL, or an existing element       |
-| `lyrics`   | `string \| LyricLine[] \| ParsedLyrics \| LyricSource` | LRC text, JSON lines, or pre-parsed lyrics |
-| `offsetMs` | `number` (optional)                               | Extra global offset on top of `[offset:]`      |
+Async factory that waits for CBR conversion (if needed) before returning
+a ready-to-use player.
+
+| Option       | Type                                                | Description                                      |
+| ------------ | --------------------------------------------------- | ------------------------------------------------ |
+| `audio`      | `string \| HTMLAudioElement`                        | Audio source URL, or an existing element         |
+| `lyrics`     | `string \| LyricLine[] \| ParsedLyrics \| LyricSource` | LRC text, JSON lines, or pre-parsed lyrics    |
+| `offsetMs`   | `number` (optional)                                 | Extra global offset on top of `[offset:]`        |
+| `skipCBR`    | `boolean` (optional, default `false`)               | Skip CBR conversion if your file is already CBR  |
+| `cbrBitrate` | `string` (optional, default `'128k'`)               | Target bitrate for CBR conversion              |
+
+### `new LyricPlayer(options)` (advanced)
+
+Synchronous constructor. The instance is returned immediately but
+**is not ready until `await player.ready()` resolves**. Use this if you
+need to attach listeners before initialization completes.
+
+```ts
+const player = new LyricPlayer({ audio: '/song.mp3', lyrics: lrcText });
+await player.ready();
+player.play();
+```
 
 ### Playback
 
@@ -90,13 +129,13 @@ new LyricPlayer({
 
 `on(event, handler)` / `off(event, handler)`:
 
-| Event        | Payload                                  |
+| Event        | Payload                                    |
 | ------------ | ------------------------------------------ |
 | `linechange` | `(line: LyricLine \| null, index: number)` |
 | `timeupdate` | `(currentTime: number)`                    |
-| `play`       | —                                           |
-| `pause`      | —                                           |
-| `ended`      | —                                           |
+| `play`       | —                                          |
+| `pause`      | —                                          |
+| `ended`      | —                                          |
 | `error`      | `(event: Event)`                           |
 
 ## Example: word-by-word highlighting
@@ -114,6 +153,16 @@ player.on('timeupdate', () => {
 });
 ```
 
+## Example: skip CBR for already-optimized files
+
+```ts
+const player = await LyricPlayer.create({
+  audio: '/song-cbr.mp3',
+  lyrics: lrcText,
+  skipCBR: true, // No conversion — instant load
+});
+```
+
 ## Development
 
 ```bash
@@ -122,3 +171,7 @@ npm run build      # bundle to dist/ (cjs + esm + types)
 npm test           # run vitest
 npm run typecheck  # tsc --noEmit
 ```
+
+## License
+
+MIT

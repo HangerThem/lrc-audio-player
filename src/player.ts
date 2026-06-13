@@ -23,6 +23,14 @@ export interface LyricPlayerOptions {
    * in the LRC file. Positive values shift lyrics later.
    */
   offsetMs?: number
+  /**
+   * Disable CBR conversion if you know your audio file is already
+   * constant bitrate (e.g., properly encoded MP3/AAC with seek tables).
+   * @default false
+   */
+  skipCBR?: boolean
+  /** Target bitrate for CBR conversion. @default '128k' */
+  cbrBitrate?: string
 }
 
 type Listener<E extends LyricPlayerEventName> = LyricPlayerEvents[E]
@@ -37,28 +45,55 @@ type Listener<E extends LyricPlayerEventName> = LyricPlayerEvents[E]
  * ```
  */
 export class LyricPlayer {
-  readonly audio: HTMLAudioElement
-  readonly metadata: LyricMetadata
-  readonly lines: LyricLine[]
+  readonly audio!: HTMLAudioElement
+  readonly metadata!: LyricMetadata
+  readonly lines!: LyricLine[]
 
-  private offsetSeconds: number
+  private offsetSeconds!: number
   private currentIndex = -1
   private listeners: Record<string, Set<Function>> = {}
 
+  static async create(options: LyricPlayerOptions): Promise<LyricPlayer> {
+    const player = new LyricPlayer(options)
+    await player.ready()
+    return player
+  }
+
+  private _readyPromise: Promise<void>
+
   constructor(options: LyricPlayerOptions) {
-    this.audio =
-      typeof options.audio === "string"
-        ? new Audio(options.audio)
-        : options.audio
+    this._readyPromise = this.initialize(options)
+  }
+
+  private async initialize(options: LyricPlayerOptions): Promise<void> {
+    const { skipCBR = false, cbrBitrate = "128k" } = options
+
+    let audioSrc: string
+    let audioEl: HTMLAudioElement
+
+    if (typeof options.audio === "string") {
+      audioSrc = options.audio
+      audioEl = new Audio()
+    } else {
+      audioEl = options.audio
+      audioSrc = options.audio.src || options.audio.currentSrc
+    }
+
+    if (!skipCBR && audioSrc) {
+      const needsConversion = await this.detectNeedsCBR(audioSrc)
+      if (needsConversion) {
+        audioSrc = await this.convertToCBR(audioSrc, cbrBitrate)
+      }
+    }
+
+    // Assign to the readonly property via the local variable
+    audioEl.src = audioSrc
+    ;(this as any).audio = audioEl // Bypass readonly for internal init
 
     const parsed = this.resolveLyrics(options.lyrics)
-    this.metadata = parsed.metadata
-    this.lines = parsed.lines
+    ;(this as any).metadata = parsed.metadata
+    ;(this as any).lines = parsed.lines
 
-    // Per the de-facto LRC convention, a positive [offset:] tag means the
-    // lyrics are tagged "early" and should be shown later, i.e. line.time
-    // should be increased to match audio.currentTime. Combine with any
-    // extra constructor offset (also positive = shift lyrics later).
     const tagOffsetMs = parsed.metadata.offset ?? 0
     this.offsetSeconds = (tagOffsetMs + (options.offsetMs ?? 0)) / 1000
 
@@ -67,6 +102,86 @@ export class LyricPlayer {
     this.audio.addEventListener("pause", () => this.emit("pause"))
     this.audio.addEventListener("ended", () => this.emit("ended"))
     this.audio.addEventListener("error", (e) => this.emit("error", e))
+  }
+
+  /** Wait for initialization (CBR conversion, etc.) before playing. */
+  ready(): Promise<void> {
+    return this._readyPromise
+  }
+
+  /** Detect if file is VBR or lacks proper seek tables. */
+  private async detectNeedsCBR(src: string): Promise<boolean> {
+    try {
+      const response = await fetch(src, { method: "HEAD" })
+      const contentType = response.headers.get("content-type") || ""
+
+      // If we can inspect the file, check for VBR signatures
+      if (contentType.includes("audio/mpeg") || src.endsWith(".mp3")) {
+        // Quick probe: check for VBR header (Xing/Info/VBRI)
+        const probe = await fetch(src, { headers: { Range: "bytes=0-1023" } })
+        const buffer = new Uint8Array(await probe.arrayBuffer())
+        return this.hasVBRHeader(buffer)
+      }
+
+      // Unknown or non-MP3: convert to be safe
+      return true
+    } catch {
+      // Fallback: convert if we can't determine
+      return true
+    }
+  }
+
+  private hasVBRHeader(buffer: Uint8Array): boolean {
+    // Search for Xing, Info, or VBRI headers in the first 1024 bytes
+    const decoder = new TextDecoder("latin1")
+    const header = decoder.decode(buffer)
+    return /Xing|Info|VBRI/.test(header)
+  }
+
+  /** Convert audio to CBR using ffmpeg.wasm. */
+  private async convertToCBR(src: string, bitrate: string): Promise<string> {
+    // Lazy-load ffmpeg only when needed
+    const [{ FFmpeg }, { fetchFile }] = await Promise.all([
+      import("@ffmpeg/ffmpeg"),
+      import("@ffmpeg/util"),
+    ])
+
+    const ffmpeg = new FFmpeg()
+    await ffmpeg.load()
+
+    await ffmpeg.writeFile("input", await fetchFile(src))
+    await ffmpeg.exec([
+      "-i",
+      "input",
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      bitrate,
+      "-minrate",
+      bitrate,
+      "-maxrate",
+      bitrate,
+      "-bufsize",
+      "256k",
+      "-preset",
+      "ultrafast",
+      "-fflags",
+      "+fastseek", // Optimize for seeking
+      "-id3v2_version",
+      "3", // Better metadata compatibility
+      "output.mp3",
+    ])
+
+    const data = await ffmpeg.readFile("output.mp3")
+    const bytes =
+      typeof data === "string" ? new TextEncoder().encode(data) : data
+    const blob = new Blob(
+      // @ts-ignore — Uint8Array is valid per spec, TS types are overly strict
+      [bytes],
+      { type: "audio/mpeg" },
+    )
+
+    return URL.createObjectURL(blob)
   }
 
   // ---------------------------------------------------------------------
@@ -120,7 +235,8 @@ export class LyricPlayer {
   // Playback controls (thin wrappers over the audio element)
   // ---------------------------------------------------------------------
 
-  play(): Promise<void> {
+  async play(): Promise<void> {
+    await this.ready()
     return this.audio.play()
   }
 
