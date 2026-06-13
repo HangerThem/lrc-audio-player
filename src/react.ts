@@ -130,8 +130,15 @@ export function useLyricPlayer(
 
         setPlayer(instance)
         setLines(instance.lines)
-        setDuration(instance.duration)
         setIsLoading(false)
+
+        if (!isNaN(instance.duration)) {
+          setDuration(instance.duration)
+        }
+
+        instance.audio.addEventListener("loadedmetadata", () => {
+          setDuration(instance.duration)
+        })
 
         instance.on("linechange", (line, index) => {
           setCurrentLine(line)
