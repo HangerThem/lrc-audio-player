@@ -1,0 +1,51 @@
+{
+  "name": "lrc-audio-player",
+  "version": "0.1.0",
+  "description": "Sync LRC/word-level lyrics to an HTML audio element with one constructor.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hangerthem/lrc-audio-player.git"
+  },
+  "homepage": "https://github.com/hangerthem/lrc-audio-player#readme",
+  "bugs": "https://github.com/hangerthem/lrc-audio-player/issues",
+  "author": "Hangerthem",
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "lyrics",
+    "lrc",
+    "audio",
+    "player",
+    "karaoke",
+    "sync"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  }
+}
