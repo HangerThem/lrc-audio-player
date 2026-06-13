@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/hangerthem/lrc-audio-player#readme",
   "bugs": "https://github.com/hangerthem/lrc-audio-player/issues",
-  "author": "Hangerthem",
+  "author": "HangerThem",
   "engines": {
     "node": ">=18"
   },
