@@ -1,6 +1,6 @@
 {
   "name": "lrc-audio-player",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Sync LRC/word-level lyrics to an HTML audio element with one constructor. Includes an optional React hook at lrc-audio-player/react.",
   "repository": {
     "type": "git",
@@ -33,11 +33,11 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
-    "prepublishOnly": "npm run typecheck && npm run test && npm run build",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "build": "tsup src/index.ts src/react.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts src/react.ts --format cjs,esm --dts --watch",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "keywords": [
     "lyrics",
