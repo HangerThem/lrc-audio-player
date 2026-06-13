@@ -1,7 +1,7 @@
 {
   "name": "lrc-audio-player",
-  "version": "0.1.0",
-  "description": "Sync LRC/word-level lyrics to an HTML audio element with one constructor.",
+  "version": "0.1.1",
+  "description": "Sync LRC/word-level lyrics to an HTML audio element with one constructor. Includes an optional React hook at lrc-audio-player/react.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hangerthem/lrc-audio-player.git"
@@ -22,6 +22,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
     }
   },
   "files": [
@@ -42,8 +47,18 @@
     "karaoke",
     "sync"
   ],
+  "peerDependencies": {
+    "react": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "license": "MIT",
   "devDependencies": {
+    "@types/react": "^19.2.17",
+    "react": "^19.2.7",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.8"

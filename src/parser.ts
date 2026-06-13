@@ -1,26 +1,26 @@
-import { LyricLine, LyricMetadata, LyricToken, ParsedLyrics } from './types';
+import { LyricLine, LyricMetadata, LyricToken, ParsedLyrics } from "./types"
 
 // [mm:ss.xx] or [mm:ss] or [h:mm:ss.xx] timestamps
-const TIME_TAG = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+const TIME_TAG = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g
 
 // Metadata tags like [ti:Title], [ar:Artist], [offset:1000]
-const META_TAG = /^\[([a-zA-Z]+):(.*)\]$/;
+const META_TAG = /^\[([a-zA-Z]+):(.*)\]$/
 
 // Word-level timing tags within a line: <mm:ss.xx>
-const WORD_TAG = /<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>/g;
+const WORD_TAG = /<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>/g
 
 const KNOWN_META_KEYS: Record<string, keyof LyricMetadata> = {
-  ti: 'title',
-  ar: 'artist',
-  al: 'album',
-  au: 'author',
-  by: 'author',
-  offset: 'offset',
-};
+  ti: "title",
+  ar: "artist",
+  al: "album",
+  au: "author",
+  by: "author",
+  offset: "offset",
+}
 
 function timeToSeconds(min: string, sec: string, frac?: string): number {
-  const fraction = frac ? Number(`0.${frac}`) : 0;
-  return Number(min) * 60 + Number(sec) + fraction;
+  const fraction = frac ? Number(`0.${frac}`) : 0
+  return Number(min) * 60 + Number(sec) + fraction
 }
 
 /**
@@ -28,36 +28,39 @@ function timeToSeconds(min: string, sec: string, frac?: string): number {
  * Returns the plain text (tags stripped) and the token list (or undefined
  * if the line has no word-level timing).
  */
-function parseTokens(raw: string, lineTime: number): { text: string; tokens?: LyricToken[] } {
+function parseTokens(
+  raw: string,
+  lineTime: number,
+): { text: string; tokens?: LyricToken[] } {
   if (!WORD_TAG.test(raw)) {
-    return { text: raw.trim() };
+    return { text: raw.trim() }
   }
-  WORD_TAG.lastIndex = 0;
+  WORD_TAG.lastIndex = 0
 
-  const tokens: LyricToken[] = [];
-  let lastIndex = 0;
-  let lastTime = lineTime;
-  let match: RegExpExecArray | null;
-  let plain = '';
+  const tokens: LyricToken[] = []
+  let lastIndex = 0
+  let lastTime = lineTime
+  let match: RegExpExecArray | null
+  let plain = ""
 
   // The text before the first <tag> belongs to the line's start time.
   while ((match = WORD_TAG.exec(raw))) {
-    const chunk = raw.slice(lastIndex, match.index);
+    const chunk = raw.slice(lastIndex, match.index)
     if (chunk.length) {
-      tokens.push({ time: lastTime, text: chunk });
-      plain += chunk;
+      tokens.push({ time: lastTime, text: chunk })
+      plain += chunk
     }
-    lastTime = timeToSeconds(match[1], match[2], match[3]);
-    lastIndex = WORD_TAG.lastIndex;
+    lastTime = timeToSeconds(match[1], match[2], match[3])
+    lastIndex = WORD_TAG.lastIndex
   }
 
-  const tail = raw.slice(lastIndex);
+  const tail = raw.slice(lastIndex)
   if (tail.length) {
-    tokens.push({ time: lastTime, text: tail });
-    plain += tail;
+    tokens.push({ time: lastTime, text: tail })
+    plain += tail
   }
 
-  return { text: plain.trim(), tokens };
+  return { text: plain.trim(), tokens }
 }
 
 /**
@@ -71,72 +74,62 @@ function parseTokens(raw: string, lineTime: number): { text: string; tokens?: Ly
  *  - Metadata tags: `[ti:Title]`, `[ar:Artist]`, `[al:Album]`, `[by:Author]`, `[offset:1000]`
  */
 export function parseLRC(lrc: string): ParsedLyrics {
-  const metadata: LyricMetadata = {};
-  const lines: LyricLine[] = [];
+  const metadata: LyricMetadata = {}
+  const lines: LyricLine[] = []
 
-  const rawLines = lrc.split(/\r?\n/);
+  const rawLines = lrc.split(/\r?\n/)
 
   for (const rawLine of rawLines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
+    const trimmed = rawLine.trim()
+    if (!trimmed) continue
 
     // Pure metadata line, e.g. [ti:Song Name]
-    const metaMatch = trimmed.match(META_TAG);
+    const metaMatch = trimmed.match(META_TAG)
     if (metaMatch && !TIME_TAG.test(trimmed)) {
-      const key = metaMatch[1].toLowerCase();
-      const value = metaMatch[2].trim();
-      const knownKey = KNOWN_META_KEYS[key];
-      if (knownKey === 'offset') {
-        metadata.offset = Number(value);
+      const key = metaMatch[1].toLowerCase()
+      const value = metaMatch[2].trim()
+      const knownKey = KNOWN_META_KEYS[key]
+      if (knownKey === "offset") {
+        metadata.offset = Number(value)
       } else if (knownKey) {
-        metadata[knownKey] = value;
+        metadata[knownKey] = value
       } else {
-        metadata[key] = value;
+        metadata[key] = value
       }
-      TIME_TAG.lastIndex = 0;
-      continue;
+      TIME_TAG.lastIndex = 0
+      continue
     }
-    TIME_TAG.lastIndex = 0;
+    TIME_TAG.lastIndex = 0
 
     // Collect all leading [mm:ss.xx] timestamps (a line can repeat at
     // multiple times, e.g. a chorus).
-    const times: number[] = [];
-    let rest = trimmed;
-    let leadingMatch: RegExpMatchArray | null;
+    const times: number[] = []
+    let rest = trimmed
+    let leadingMatch: RegExpMatchArray | null
     // eslint-disable-next-line no-cond-assign
-    while ((leadingMatch = rest.match(/^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/))) {
-      times.push(timeToSeconds(leadingMatch[1], leadingMatch[2], leadingMatch[3]));
-      rest = rest.slice(leadingMatch[0].length);
+    while (
+      (leadingMatch = rest.match(/^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/))
+    ) {
+      times.push(
+        timeToSeconds(leadingMatch[1], leadingMatch[2], leadingMatch[3]),
+      )
+      rest = rest.slice(leadingMatch[0].length)
     }
 
     if (times.length === 0) {
       // No timestamp at all (stray text) - skip it.
-      continue;
+      continue
     }
 
     for (const time of times) {
-      const { text, tokens } = parseTokens(rest, time);
-      lines.push({ time, text, tokens });
+      const { text, tokens } = parseTokens(rest, time)
+      lines.push({ time, text, tokens })
     }
   }
 
-  // Apply offset (in ms): positive offset means lyrics should display
-  // earlier relative to file time, per the de-facto LRC convention.
-  const offsetSeconds = (metadata.offset ?? 0) / 1000;
-  if (offsetSeconds) {
-    for (const line of lines) {
-      line.time -= offsetSeconds;
-      if (line.tokens) {
-        for (const token of line.tokens) {
-          token.time -= offsetSeconds;
-        }
-      }
-    }
-  }
+  lines.sort((a, b) => a.time - b.time)
 
-  lines.sort((a, b) => a.time - b.time);
-
-  return { metadata, lines };
+  return { metadata, lines }
 }
 
 /**
@@ -145,7 +138,7 @@ export function parseLRC(lrc: string): ParsedLyrics {
  * Useful as an alternative to LRC when you control the lyric source yourself.
  */
 export function parseJSONLyrics(json: string | LyricLine[]): ParsedLyrics {
-  const lines: LyricLine[] = typeof json === 'string' ? JSON.parse(json) : json;
-  const sorted = [...lines].sort((a, b) => a.time - b.time);
-  return { metadata: {}, lines: sorted };
+  const lines: LyricLine[] = typeof json === "string" ? JSON.parse(json) : json
+  const sorted = [...lines].sort((a, b) => a.time - b.time)
+  return { metadata: {}, lines: sorted }
 }
