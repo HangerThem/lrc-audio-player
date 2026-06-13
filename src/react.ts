@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { LyricPlayer } from "./player"
-import type { LyricLine, LyricPlayerOptions } from "./types"
+import type { LyricLine, LyricPlayerOptions, LyricToken } from "./types"
 import type { LyricSource } from "./player"
 
 export interface UseLyricPlayerOptions extends Omit<
@@ -26,12 +26,30 @@ export interface UseLyricPlayerResult {
   currentLine: LyricLine | null
   /** Index of the currently active lyric line (-1 if none yet). */
   currentIndex: number
+  /** The currently active word/token (for word-level LRC), or null. */
+  currentToken: LyricToken | null
   /** All parsed lyric lines (empty until lyrics are loaded). */
   lines: LyricLine[]
   /** Whether the player is initializing (CBR conversion in progress). */
   isLoading: boolean
   /** Error if initialization failed. */
   error: Error | null
+  /** Whether audio is currently playing. */
+  isPlaying: boolean
+  /** Current playback time in seconds. */
+  currentTime: number
+  /** Total audio duration in seconds (0 if unknown). */
+  duration: number
+  /** Jump to a specific time in seconds. */
+  seek: (timeSeconds: number) => void
+  /** Jump to the start of a specific lyric line. */
+  seekToLine: (index: number) => void
+  /** Play the audio. */
+  play: () => Promise<void>
+  /** Pause the audio. */
+  pause: () => void
+  /** Toggle play/pause. */
+  toggle: () => Promise<void> | void
 }
 
 /**
@@ -45,7 +63,7 @@ export interface UseLyricPlayerResult {
  * ```tsx
  * 'use client';
  *
- * const { audioRef, currentLine, lines, player, isLoading } = useLyricPlayer({
+ * const { audioRef, currentLine, lines, isLoading, isPlaying, currentTime } = useLyricPlayer({
  *   audio: '/song.mp3',
  *   lyrics: lrcText,
  * });
@@ -66,12 +84,14 @@ export function useLyricPlayer(
   const [player, setPlayer] = useState<LyricPlayer | null>(null)
   const [currentLine, setCurrentLine] = useState<LyricLine | null>(null)
   const [currentIndex, setCurrentIndex] = useState(-1)
+  const [currentToken, setCurrentToken] = useState<LyricToken | null>(null)
   const [lines, setLines] = useState<LyricLine[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
 
-  // Keep latest options in a ref so the effect doesn't need them in deps
-  // beyond the values that should actually trigger recreation.
   const optionsRef = useRef(options)
   optionsRef.current = options
 
@@ -90,8 +110,11 @@ export function useLyricPlayer(
     setLines([])
     setCurrentLine(null)
     setCurrentIndex(-1)
+    setCurrentToken(null)
+    setIsPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
 
-    // Async initialization
     LyricPlayer.create({
       audio: audioEl,
       lyrics,
@@ -107,12 +130,22 @@ export function useLyricPlayer(
 
         setPlayer(instance)
         setLines(instance.lines)
+        setDuration(instance.duration)
         setIsLoading(false)
 
         instance.on("linechange", (line, index) => {
           setCurrentLine(line)
           setCurrentIndex(index)
         })
+
+        instance.on("timeupdate", (time) => {
+          setCurrentTime(time)
+          setCurrentToken(instance.getCurrentToken())
+        })
+
+        instance.on("play", () => setIsPlaying(true))
+        instance.on("pause", () => setIsPlaying(false))
+        instance.on("ended", () => setIsPlaying(false))
       })
       .catch((err) => {
         if (!cancelled) {
@@ -123,13 +156,11 @@ export function useLyricPlayer(
 
     return () => {
       cancelled = true
-      // Note: we can't await destroy() in cleanup, but it's sync enough
       setPlayer((prev) => {
         prev?.destroy()
         return null
       })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     options.audio,
     options.lyrics,
@@ -138,14 +169,49 @@ export function useLyricPlayer(
     options.cbrBitrate,
   ])
 
+  const seek = useCallback(
+    (timeSeconds: number) => {
+      player?.seek(timeSeconds)
+    },
+    [player],
+  )
+
+  const seekToLine = useCallback(
+    (index: number) => {
+      player?.seekToLine(index)
+    },
+    [player],
+  )
+
+  const play = useCallback(() => {
+    return player?.play() ?? Promise.resolve()
+  }, [player])
+
+  const pause = useCallback(() => {
+    player?.pause()
+  }, [player])
+
+  const toggle = useCallback(() => {
+    return player?.toggle()
+  }, [player])
+
   return {
     player,
     audioRef,
     currentLine,
     currentIndex,
+    currentToken,
     lines,
     isLoading,
     error,
+    isPlaying,
+    currentTime,
+    duration,
+    seek,
+    seekToLine,
+    play,
+    pause,
+    toggle,
   }
 }
 
