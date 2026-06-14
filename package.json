@@ -1,6 +1,6 @@
 {
   "name": "lrc-audio-player",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Sync LRC/word-level lyrics to an HTML audio element with one constructor. Includes an optional React hook at lrc-audio-player/react.",
   "repository": {
     "type": "git",

@@ -16,8 +16,21 @@ export interface UseLyricPlayerOptions extends Omit<
   skipCBR?: boolean
   /** Target bitrate for CBR conversion. @default '128k' */
   cbrBitrate?: string
-  /** Optional metadata to fetch lyrics from LRCLIB if no lyrics are provided. */
+  /**
+   * Optional metadata to auto-fetch lyrics from LRCLIB if no lyrics are
+   * provided. Duration is detected from the audio element automatically.
+   */
   lrclib?: LrclibTrackInfo
+  /**
+   * A previously fetched LRCLIB result. Takes priority over `lrclib` and
+   * skips any network request — lyrics and metadata are extracted directly.
+   * Pass a result from `useLrclibSearch` to let the user pick which track
+   * to load without refetching.
+   *
+   * Note: pass a stable reference (e.g. from useState) to avoid triggering
+   * unnecessary re-initializations.
+   */
+  lrclibResult?: LrclibResult | null
 }
 
 export interface UseLyricPlayerResult {
@@ -62,13 +75,13 @@ export interface UseLyricPlayerResult {
  * element via ref, and keeps the active lyric line in sync with React
  * state via the `linechange` event.
  *
- * Must be used in a Client Component - `LyricPlayer` requires a real
+ * Must be used in a Client Component — `LyricPlayer` requires a real
  * `HTMLAudioElement`, which doesn't exist during SSR.
  *
  * ```tsx
  * 'use client';
  *
- * const { audioRef, currentLine, lines, isLoading, isPlaying, currentTime } = useLyricPlayer({
+ * const { audioRef, currentLine, lines, isLoading, isPlaying } = useLyricPlayer({
  *   audio: '/song.mp3',
  *   lyrics: lrcText,
  * });
@@ -76,7 +89,7 @@ export interface UseLyricPlayerResult {
  * return (
  *   <>
  *     <audio ref={audioRef} controls />
- *     {isLoading && <p>Loading audio…</p>}
+ *     {isLoading && <p>Loading…</p>}
  *     <p>{currentLine?.text}</p>
  *   </>
  * );
@@ -105,8 +118,15 @@ export function useLyricPlayer(
     const audioEl = audioRef.current
     if (!audioEl) return
 
-    const { audio, lyrics, offsetMs, skipCBR, cbrBitrate, lrclib } =
-      optionsRef.current
+    const {
+      audio,
+      lyrics,
+      offsetMs,
+      skipCBR,
+      cbrBitrate,
+      lrclib,
+      lrclibResult,
+    } = optionsRef.current
     if (audio) audioEl.src = audio
 
     let cancelled = false
@@ -121,6 +141,7 @@ export function useLyricPlayer(
     setIsPlaying(false)
     setCurrentTime(0)
     setDuration(0)
+    setInstrumental(false)
 
     LyricPlayer.create({
       audio: audioEl,
@@ -129,6 +150,7 @@ export function useLyricPlayer(
       skipCBR,
       cbrBitrate,
       lrclib,
+      lrclibResult: lrclibResult ?? undefined,
     })
       .then((instance) => {
         if (cancelled) {
@@ -183,6 +205,8 @@ export function useLyricPlayer(
     options.offsetMs,
     options.skipCBR,
     options.cbrBitrate,
+    options.lrclib,
+    options.lrclibResult, // stable ref from useState — re-initializes when user picks a result
   ])
 
   const seek = useCallback(
@@ -233,25 +257,26 @@ export function useLyricPlayer(
 }
 
 /**
- * React hook to search LRCLIB for tracks matching a query string, returning the results along with loading and error state.
+ * React hook to search LRCLIB for tracks matching a query string.
+ * Returns results with metadata and lyrics availability. Call `search()`
+ * manually (e.g. on button click or Enter key) to trigger the fetch.
  *
  * ```tsx
  * 'use client';
  *
- * const { results, isLoading, error, search } = useLrclibSearch(query);
+ * const [query, setQuery] = useState('')
+ * const { results, isLoading, error, search } = useLrclibSearch(query)
  *
  * return (
  *   <>
- *     <button onClick={search} disabled={!query || isLoading}>Search LRCLIB</button>
- *     {isLoading && <p>Searching…</p>}
- *     {error && <p>Error: {error.message}</p>}
- *     <ul>
- *       {results.map(result => (
- *         <li key={result.id}>{result.artistName} - {result.trackName}</li>
- *       ))}
- *     </ul>
+ *     <input value={query} onChange={(e) => setQuery(e.target.value)}
+ *            onKeyDown={(e) => e.key === 'Enter' && search()} />
+ *     <button onClick={search} disabled={!query || isLoading}>Search</button>
+ *     {results.map((r) => (
+ *       <div key={r.trackName}>{r.artistName} — {r.trackName}</div>
+ *     ))}
  *   </>
- * );
+ * )
  * ```
  */
 export function useLrclibSearch(query: string | null) {

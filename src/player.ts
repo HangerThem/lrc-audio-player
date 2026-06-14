@@ -7,7 +7,7 @@ import {
   LyricToken,
   ParsedLyrics,
 } from "./types"
-import type { LrclibTrackInfo } from "./lrclib"
+import type { LrclibResult, LrclibTrackInfo } from "./lrclib"
 import { fetchFromLrclib } from "./lrclib"
 
 export type LyricSource =
@@ -33,8 +33,16 @@ export interface LyricPlayerOptions {
   skipCBR?: boolean
   /** Target bitrate for CBR conversion. @default '128k' */
   cbrBitrate?: string
-  /** Optional metadata to fetch lyrics from LRCLIB if no lyrics are provided. */
+  /**
+   * Optional metadata to auto-fetch lyrics from LRCLIB if no lyrics are
+   * provided. Duration is detected from the audio element automatically.
+   */
   lrclib?: LrclibTrackInfo
+  /**
+   * A previously fetched LRCLIB result. Takes priority over `lrclib` and
+   * skips any network request — lyrics and metadata are extracted directly.
+   */
+  lrclibResult?: LrclibResult
 }
 
 type Listener<E extends LyricPlayerEventName> = LyricPlayerEvents[E]
@@ -68,7 +76,6 @@ export class LyricPlayer {
 
     let audioSrc: string
     let audioEl: HTMLAudioElement
-
     let lrclibMeta: LyricMetadata = {}
 
     if (typeof options.audio === "string") {
@@ -79,7 +86,26 @@ export class LyricPlayer {
       audioSrc = options.audio.src || options.audio.currentSrc
     }
 
-    if (options.lrclib && !options.lyrics) {
+    if (options.lrclibResult && !options.lyrics) {
+      // Use a pre-fetched result directly — no network request needed.
+      const result = options.lrclibResult
+
+      lrclibMeta = {
+        title: result.trackName ?? undefined,
+        artist: result.artistName ?? undefined,
+        album: result.albumName ?? undefined,
+      }
+
+      if (result.instrumental) {
+        this.emit("instrumental")
+      } else if (result.syncedLyrics) {
+        options.lyrics = result.syncedLyrics
+      } else if (result.plainLyrics) {
+        console.warn(
+          "[lrc-audio-player] Only unsynced lyrics found for this track",
+        )
+      }
+    } else if (options.lrclib && !options.lyrics) {
       const duration = await new Promise<number>((resolve) => {
         if (!isNaN(audioEl.duration)) return resolve(audioEl.duration)
         audioEl.addEventListener(
@@ -93,9 +119,9 @@ export class LyricPlayer {
       const result = await fetchFromLrclib(options.lrclib, duration)
 
       lrclibMeta = {
-        title: result?.trackName,
-        artist: result?.artistName,
-        album: result?.albumName,
+        title: result?.trackName ?? undefined,
+        artist: result?.artistName ?? undefined,
+        album: result?.albumName ?? undefined,
       }
 
       if (result?.instrumental) {
@@ -116,11 +142,11 @@ export class LyricPlayer {
       }
     }
 
-    // Assign to the readonly property via the local variable
     audioEl.src = audioSrc
-    ;(this as any).audio = audioEl // Bypass readonly for internal init
+    ;(this as any).audio = audioEl
 
     const parsed = this.resolveLyrics(options.lyrics)
+    // LRC file tags win over LRCLIB metadata if both are present.
     ;(this as any).metadata = { ...lrclibMeta, ...parsed.metadata }
     ;(this as any).lines = parsed.lines
 
@@ -146,12 +172,29 @@ export class LyricPlayer {
     return player
   }
 
-  /** Fetch lyrics from LRCLIB and create a ready player in one step. */
+  /**
+   * Auto-fetch lyrics from LRCLIB and create a ready player in one step.
+   * Duration is detected from the audio element automatically.
+   */
   static async fromLrclib(
-    options: Omit<LyricPlayerOptions, "lyrics"> & { lrclib: LrclibTrackInfo },
-  ): Promise<LyricPlayer & { instrumental: boolean }> {
-    const player = await LyricPlayer.create(options)
-    return player as LyricPlayer & { instrumental: boolean }
+    options: Omit<LyricPlayerOptions, "lyrics" | "lrclibResult"> & {
+      lrclib: LrclibTrackInfo
+    },
+  ): Promise<LyricPlayer> {
+    return LyricPlayer.create(options)
+  }
+
+  /**
+   * Create a player from a previously fetched LRCLIB result, with no
+   * additional network request. Lyrics and metadata are taken directly
+   * from the result object.
+   */
+  static async fromLrclibResult(
+    options: Omit<LyricPlayerOptions, "lyrics" | "lrclib"> & {
+      lrclibResult: LrclibResult
+    },
+  ): Promise<LyricPlayer> {
+    return LyricPlayer.create(options)
   }
 
   /** Detect if file is VBR or lacks proper seek tables. */
@@ -160,24 +203,19 @@ export class LyricPlayer {
       const response = await fetch(src, { method: "HEAD" })
       const contentType = response.headers.get("content-type") || ""
 
-      // If we can inspect the file, check for VBR signatures
       if (contentType.includes("audio/mpeg") || src.endsWith(".mp3")) {
-        // Quick probe: check for VBR header (Xing/Info/VBRI)
         const probe = await fetch(src, { headers: { Range: "bytes=0-1023" } })
         const buffer = new Uint8Array(await probe.arrayBuffer())
         return this.hasVBRHeader(buffer)
       }
 
-      // Unknown or non-MP3: convert to be safe
       return true
     } catch {
-      // Fallback: convert if we can't determine
       return true
     }
   }
 
   private hasVBRHeader(buffer: Uint8Array): boolean {
-    // Search for Xing, Info, or VBRI headers in the first 1024 bytes
     const decoder = new TextDecoder("latin1")
     const header = decoder.decode(buffer)
     return /Xing|Info|VBRI/.test(header)
@@ -185,7 +223,6 @@ export class LyricPlayer {
 
   /** Convert audio to CBR using ffmpeg.wasm. */
   private async convertToCBR(src: string, bitrate: string): Promise<string> {
-    // Lazy-load ffmpeg only when needed
     const [{ FFmpeg }, { fetchFile }] = await Promise.all([
       import("@ffmpeg/ffmpeg"),
       import("@ffmpeg/util"),
@@ -211,9 +248,9 @@ export class LyricPlayer {
       "-preset",
       "ultrafast",
       "-fflags",
-      "+fastseek", // Optimize for seeking
+      "+fastseek",
       "-id3v2_version",
-      "3", // Better metadata compatibility
+      "3",
       "output.mp3",
     ])
 
@@ -221,7 +258,7 @@ export class LyricPlayer {
     const bytes =
       typeof data === "string" ? new TextEncoder().encode(data) : data
     const blob = new Blob(
-      // @ts-ignore - Uint8Array is valid per spec, TS types are overly strict
+      // @ts-ignore — Uint8Array is valid per spec, TS types are overly strict
       [bytes],
       { type: "audio/mpeg" },
     )
@@ -255,7 +292,6 @@ export class LyricPlayer {
       }
     }
 
-    // Already a ParsedLyrics object
     return lyrics as ParsedLyrics
   }
 

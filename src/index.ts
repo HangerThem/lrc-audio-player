@@ -9,6 +9,5 @@ export type {
   LyricPlayerEvents,
   LyricPlayerEventName,
 } from "./types"
-export { searchLrclib } from "./lrclib"
+export { searchLrclib, fetchFromLrclib } from "./lrclib"
 export type { LrclibTrackInfo, LrclibResult } from "./lrclib"
-export { useLyricPlayer, useLrclibSearch } from "./react"
