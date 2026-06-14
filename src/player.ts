@@ -69,6 +69,8 @@ export class LyricPlayer {
     let audioSrc: string
     let audioEl: HTMLAudioElement
 
+    let lrclibMeta: LyricMetadata = {}
+
     if (typeof options.audio === "string") {
       audioSrc = options.audio
       audioEl = new Audio()
@@ -89,6 +91,12 @@ export class LyricPlayer {
       })
 
       const result = await fetchFromLrclib(options.lrclib, duration)
+
+      lrclibMeta = {
+        title: result?.trackName,
+        artist: result?.artistName,
+        album: result?.albumName,
+      }
 
       if (result?.instrumental) {
         this.emit("instrumental")
@@ -113,7 +121,7 @@ export class LyricPlayer {
     ;(this as any).audio = audioEl // Bypass readonly for internal init
 
     const parsed = this.resolveLyrics(options.lyrics)
-    ;(this as any).metadata = parsed.metadata
+    ;(this as any).metadata = { ...lrclibMeta, ...parsed.metadata }
     ;(this as any).lines = parsed.lines
 
     const tagOffsetMs = parsed.metadata.offset ?? 0

@@ -1,6 +1,6 @@
 const LRCLIB_BASE = "https://lrclib.net/api"
 const USER_AGENT =
-  "lrc-audio-player v0.2.1 (https://github.com/HangerThem/lrc-audio-player)"
+  "lrc-audio-player v0.2.2 (https://github.com/HangerThem/lrc-audio-player)"
 
 export interface LrclibTrackInfo {
   trackName: string
