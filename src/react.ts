@@ -233,41 +233,58 @@ export function useLyricPlayer(
 }
 
 /**
- * React hook to search LRCLIB for tracks matching a query string. Returns an array of results with basic metadata and lyrics availability, but not the
- * actual lyrics content - use `fetchFromLrclib` for that.
+ * React hook to search LRCLIB for tracks matching a query string, returning the results along with loading and error state.
+ *
+ * ```tsx
+ * 'use client';
+ *
+ * const { results, isLoading, error, search } = useLrclibSearch(query);
+ *
+ * return (
+ *   <>
+ *     <button onClick={search} disabled={!query || isLoading}>Search LRCLIB</button>
+ *     {isLoading && <p>Searching…</p>}
+ *     {error && <p>Error: {error.message}</p>}
+ *     <ul>
+ *       {results.map(result => (
+ *         <li key={result.id}>{result.artistName} - {result.trackName}</li>
+ *       ))}
+ *     </ul>
+ *   </>
+ * );
+ * ```
  */
 export function useLrclibSearch(query: string | null) {
   const [results, setResults] = useState<LrclibResult[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const cancelledRef = useRef(false)
 
   useEffect(() => {
-    if (!query) return
-    let cancelled = false
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [])
 
+  const search = useCallback(async () => {
+    if (!query) return
+
+    cancelledRef.current = false
     setIsLoading(true)
     setError(null)
 
-    searchLrclib(query)
-      .then((r) => {
-        if (!cancelled) {
-          setResults(r)
-          setIsLoading(false)
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setError(e)
-          setIsLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
+    try {
+      const r = await searchLrclib(query)
+      if (!cancelledRef.current) setResults(r)
+    } catch (e) {
+      if (!cancelledRef.current)
+        setError(e instanceof Error ? e : new Error(String(e)))
+    } finally {
+      if (!cancelledRef.current) setIsLoading(false)
     }
   }, [query])
 
-  return { results, isLoading, error }
+  return { results, isLoading, error, search }
 }
 
 export type { LyricSource } from "./player"
