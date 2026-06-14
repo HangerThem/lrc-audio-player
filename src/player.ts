@@ -7,6 +7,8 @@ import {
   LyricToken,
   ParsedLyrics,
 } from "./types"
+import type { LrclibTrackInfo } from "./lrclib"
+import { fetchFromLrclib } from "./lrclib"
 
 export type LyricSource =
   | { type: "lrc"; data: string }
@@ -31,6 +33,8 @@ export interface LyricPlayerOptions {
   skipCBR?: boolean
   /** Target bitrate for CBR conversion. @default '128k' */
   cbrBitrate?: string
+  /** Optional metadata to fetch lyrics from LRCLIB if no lyrics are provided. */
+  lrclib?: LrclibTrackInfo
 }
 
 type Listener<E extends LyricPlayerEventName> = LyricPlayerEvents[E]
@@ -52,19 +56,13 @@ export class LyricPlayer {
   private offsetSeconds!: number
   private currentIndex = -1
   private listeners: Record<string, Set<Function>> = {}
-
-  static async create(options: LyricPlayerOptions): Promise<LyricPlayer> {
-    const player = new LyricPlayer(options)
-    await player.ready()
-    return player
-  }
-
   private _readyPromise: Promise<void>
 
   constructor(options: LyricPlayerOptions) {
     this._readyPromise = this.initialize(options)
   }
 
+  /** Initialize the player, including CBR conversion if needed. */
   private async initialize(options: LyricPlayerOptions): Promise<void> {
     const { skipCBR = false, cbrBitrate = "128k" } = options
 
@@ -77,6 +75,30 @@ export class LyricPlayer {
     } else {
       audioEl = options.audio
       audioSrc = options.audio.src || options.audio.currentSrc
+    }
+
+    if (options.lrclib && !options.lyrics) {
+      const duration = await new Promise<number>((resolve) => {
+        if (!isNaN(audioEl.duration)) return resolve(audioEl.duration)
+        audioEl.addEventListener(
+          "loadedmetadata",
+          () => resolve(audioEl.duration),
+          { once: true },
+        )
+        audioEl.load()
+      })
+
+      const result = await fetchFromLrclib(options.lrclib, duration)
+
+      if (result?.instrumental) {
+        this.emit("instrumental")
+      } else if (result?.syncedLyrics) {
+        options.lyrics = result.syncedLyrics
+      } else if (result?.plainLyrics) {
+        console.warn(
+          "[lrc-audio-player] Only unsynced lyrics found for this track",
+        )
+      }
     }
 
     if (!skipCBR && audioSrc) {
@@ -107,6 +129,21 @@ export class LyricPlayer {
   /** Wait for initialization (CBR conversion, etc.) before playing. */
   ready(): Promise<void> {
     return this._readyPromise
+  }
+
+  /** Create a new LyricPlayer instance and wait for it to be ready. */
+  static async create(options: LyricPlayerOptions): Promise<LyricPlayer> {
+    const player = new LyricPlayer(options)
+    await player.ready()
+    return player
+  }
+
+  /** Fetch lyrics from LRCLIB and create a ready player in one step. */
+  static async fromLrclib(
+    options: Omit<LyricPlayerOptions, "lyrics"> & { lrclib: LrclibTrackInfo },
+  ): Promise<LyricPlayer & { instrumental: boolean }> {
+    const player = await LyricPlayer.create(options)
+    return player as LyricPlayer & { instrumental: boolean }
   }
 
   /** Detect if file is VBR or lacks proper seek tables. */
@@ -176,7 +213,7 @@ export class LyricPlayer {
     const bytes =
       typeof data === "string" ? new TextEncoder().encode(data) : data
     const blob = new Blob(
-      // @ts-ignore — Uint8Array is valid per spec, TS types are overly strict
+      // @ts-ignore - Uint8Array is valid per spec, TS types are overly strict
       [bytes],
       { type: "audio/mpeg" },
     )

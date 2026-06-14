@@ -1,6 +1,6 @@
-export { LyricPlayer } from './player';
-export type { LyricPlayerOptions, LyricSource } from './player';
-export { parseLRC, parseJSONLyrics } from './parser';
+export { LyricPlayer } from "./player"
+export type { LyricPlayerOptions, LyricSource } from "./player"
+export { parseLRC, parseJSONLyrics } from "./parser"
 export type {
   LyricLine,
   LyricToken,
@@ -8,4 +8,7 @@ export type {
   ParsedLyrics,
   LyricPlayerEvents,
   LyricPlayerEventName,
-} from './types';
+} from "./types"
+export { searchLrclib } from "./lrclib"
+export type { LrclibTrackInfo, LrclibResult } from "./lrclib"
+export { useLyricPlayer, useLrclibSearch } from "./react"

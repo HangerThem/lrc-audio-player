@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseLRC } from "../src/parser"
+import { parseJSONLyrics, parseLRC } from "../src/parser"
 
 const SAMPLE_LRC = `
 [ti:Test Song]
@@ -51,5 +51,28 @@ describe("parseLRC", () => {
     )
     expect(metadata.offset).toBe(1000)
     expect(lines[0].time).toBeCloseTo(10.0)
+  })
+})
+
+describe("parseJSONLyrics", () => {
+  it("accepts a JSON string and sorts lines by time", () => {
+    const parsed = parseJSONLyrics(
+      JSON.stringify([
+        { time: 3, text: "third" },
+        { time: 1, text: "first" },
+      ]),
+    )
+
+    expect(parsed.metadata).toEqual({})
+    expect(parsed.lines.map((l) => l.text)).toEqual(["first", "third"])
+  })
+
+  it("accepts a LyricLine array and sorts lines by time", () => {
+    const parsed = parseJSONLyrics([
+      { time: 2, text: "two" },
+      { time: 0.5, text: "half" },
+    ])
+
+    expect(parsed.lines.map((l) => l.time)).toEqual([0.5, 2])
   })
 })

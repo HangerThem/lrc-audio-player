@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { LyricPlayer } from "./player"
 import type { LyricLine, LyricPlayerOptions, LyricToken } from "./types"
-import type { LyricSource } from "./player"
+import { searchLrclib } from "./lrclib"
+import type { LrclibResult, LrclibTrackInfo } from "./lrclib"
 
 export interface UseLyricPlayerOptions extends Omit<
   LyricPlayerOptions,
@@ -15,6 +16,8 @@ export interface UseLyricPlayerOptions extends Omit<
   skipCBR?: boolean
   /** Target bitrate for CBR conversion. @default '128k' */
   cbrBitrate?: string
+  /** Optional metadata to fetch lyrics from LRCLIB if no lyrics are provided. */
+  lrclib?: LrclibTrackInfo
 }
 
 export interface UseLyricPlayerResult {
@@ -40,6 +43,8 @@ export interface UseLyricPlayerResult {
   currentTime: number
   /** Total audio duration in seconds (0 if unknown). */
   duration: number
+  /** Whether the track is instrumental (no lyrics). */
+  instrumental: boolean
   /** Jump to a specific time in seconds. */
   seek: (timeSeconds: number) => void
   /** Jump to the start of a specific lyric line. */
@@ -91,6 +96,7 @@ export function useLyricPlayer(
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [instrumental, setInstrumental] = useState(false)
 
   const optionsRef = useRef(options)
   optionsRef.current = options
@@ -99,7 +105,8 @@ export function useLyricPlayer(
     const audioEl = audioRef.current
     if (!audioEl) return
 
-    const { audio, lyrics, offsetMs, skipCBR, cbrBitrate } = optionsRef.current
+    const { audio, lyrics, offsetMs, skipCBR, cbrBitrate, lrclib } =
+      optionsRef.current
     if (audio) audioEl.src = audio
 
     let cancelled = false
@@ -121,6 +128,7 @@ export function useLyricPlayer(
       offsetMs,
       skipCBR,
       cbrBitrate,
+      lrclib,
     })
       .then((instance) => {
         if (cancelled) {
@@ -150,6 +158,7 @@ export function useLyricPlayer(
           setCurrentToken(instance.getCurrentToken())
         })
 
+        instance.on("instrumental", () => setInstrumental(true))
         instance.on("play", () => setIsPlaying(true))
         instance.on("pause", () => setIsPlaying(false))
         instance.on("ended", () => setIsPlaying(false))
@@ -214,6 +223,7 @@ export function useLyricPlayer(
     isPlaying,
     currentTime,
     duration,
+    instrumental,
     seek,
     seekToLine,
     play,
@@ -222,4 +232,42 @@ export function useLyricPlayer(
   }
 }
 
-export type { LyricSource }
+/**
+ * React hook to search LRCLIB for tracks matching a query string. Returns an array of results with basic metadata and lyrics availability, but not the
+ * actual lyrics content - use `fetchFromLrclib` for that.
+ */
+export function useLrclibSearch(query: string | null) {
+  const [results, setResults] = useState<LrclibResult[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  useEffect(() => {
+    if (!query) return
+    let cancelled = false
+
+    setIsLoading(true)
+    setError(null)
+
+    searchLrclib(query)
+      .then((r) => {
+        if (!cancelled) {
+          setResults(r)
+          setIsLoading(false)
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e)
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [query])
+
+  return { results, isLoading, error }
+}
+
+export type { LyricSource } from "./player"

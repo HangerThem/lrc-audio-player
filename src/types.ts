@@ -72,6 +72,8 @@ export interface LyricPlayerEvents {
   ended: () => void
   /** Fired if the audio element raises an error. */
   error: (error: Event) => void
+  /** Fired when the track is instrumental (no lyrics). */
+  instrumental: () => void
 }
 
 export type LyricPlayerEventName = keyof LyricPlayerEvents

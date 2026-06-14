@@ -1,9 +1,20 @@
 # lrc-audio-player
 
-Sync LRC (and word-level "enhanced" LRC) lyrics to an `HTMLAudioElement`
-with accurate seeking. Automatically converts variable-bitrate (VBR)
-audio to constant bitrate (CBR) for precise `currentTime` synchronization
-— critical for lyrics that must stay locked to the audio.
+Time-synced lyrics for the browser.
+
+`lrc-audio-player` wraps an `HTMLAudioElement` and keeps LRC lyrics (including
+word-level timing) in sync with playback and seeking. It can also convert audio
+to CBR in-browser with `ffmpeg.wasm` to reduce post-seek drift.
+
+## Features
+
+- Parse standard and enhanced LRC (`<mm:ss.xx>` word timing)
+- Support repeated timestamps and common metadata tags (`[ti]`, `[ar]`, `[al]`, `[by]`, `[au]`, `[offset]`)
+- Fast line lookup via binary search (`findLineIndexAtTime`)
+- Runtime lyric replacement (`setLyrics`) and offset control (`setOffset`)
+- Optional LRCLIB lookup (`lrclib` option or `fromLrclib`)
+- Optional React hooks (`useLyricPlayer`, `useLrclibSearch`)
+- Optional CBR transcoding using `@ffmpeg/ffmpeg` + `@ffmpeg/util`
 
 ## Install
 
@@ -11,165 +22,201 @@ audio to constant bitrate (CBR) for precise `currentTime` synchronization
 npm install lrc-audio-player
 ```
 
-**Optional:** If you need CBR conversion (recommended), also install:
+Optional peer dependencies:
 
 ```bash
+# Needed for automatic CBR conversion
 npm install @ffmpeg/ffmpeg @ffmpeg/util
+
+# Needed only if you use React hooks
+npm install react
 ```
 
-> `ffmpeg.wasm` is loaded on-demand and only when needed. If you skip
-> installing it, you must set `skipCBR: true` and provide CBR-encoded
-> audio files yourself.
+If you do not install ffmpeg packages, set `skipCBR: true`.
 
-## Quick start
+## Quick Start
 
 ```ts
-import { LyricPlayer } from 'lrc-audio-player';
+import { LyricPlayer } from "lrc-audio-player"
 
-const lrcText = await fetch('/song.lrc').then((r) => r.text());
+const lrcText = await fetch("/song.lrc").then((r) => r.text())
 
-// Async factory — handles CBR conversion in the background
 const player = await LyricPlayer.create({
-  audio: '/song.mp3',
+  audio: "/song.mp3",
   lyrics: lrcText,
-});
+})
 
-player.on('linechange', (line, index) => {
-  console.log(index, line?.text);
-});
+player.on("linechange", (line, index) => {
+  console.log(index, line?.text)
+})
 
-player.play();
+await player.play()
 ```
 
-You can also hand it an existing `<audio>` element instead of a URL:
+You can also pass an existing audio element:
 
 ```ts
-const audioEl = document.querySelector('audio')!;
-const player = await LyricPlayer.create({ audio: audioEl, lyrics: lrcText });
+const audioEl = document.querySelector("audio")!
+const player = await LyricPlayer.create({
+  audio: audioEl,
+  lyrics: lrcText,
+})
 ```
 
-## Why CBR conversion?
+## Lyric Inputs
 
-Browsers estimate `audio.currentTime` from average bitrate when seek tables
-are missing. With VBR files, this causes drift — lyrics appear early or
-late after seeking. **CBR guarantees linear time-to-byte mapping**, so
-seeking is sample-accurate.
+You can provide lyrics as:
 
-By default, `lrc-audio-player` detects VBR MP3s and re-encodes them to
-CBR using `ffmpeg.wasm` (all in-browser, no server needed). If your audio
-is already CBR, set `skipCBR: true` to skip conversion.
-
-## Lyric formats
-
-- **Standard LRC**: `[01:23.45]Some lyric line`
-- **Repeated lines** (e.g. choruses): `[00:10.00][00:20.00]Same line`
-- **Word-level / enhanced LRC**: `[00:01.00]<00:01.00>Hello <00:01.50>world`
-- **Metadata tags**: `[ti:]`, `[ar:]`, `[al:]`, `[by:]`/`[au:]`, `[offset:]`
-- **Plain JSON**: pass an array of `{ time, text }` objects directly, or
-  use `lyrics: { type: 'json', data: [...] }`
+- LRC string
+- JSON lines array (`LyricLine[]`)
+- JSON string (`[{"time":1.2,"text":"..."}]`)
+- Parsed object (`ParsedLyrics`)
+- Tagged source object (`LyricSource`)
 
 ```ts
 await LyricPlayer.create({
-  audio: '/song.mp3',
+  audio: "/song.mp3",
   lyrics: [
-    { time: 0, text: 'First line' },
-    { time: 3.5, text: 'Second line' },
+    { time: 0, text: "First line" },
+    { time: 3.5, text: "Second line" },
   ],
-});
+})
+```
+
+Enhanced LRC example:
+
+```lrc
+[00:05.50]<00:05.50>Hello <00:06.00>world
+```
+
+## CBR Behavior
+
+When `skipCBR` is `false` (default), the player checks whether conversion is
+needed and may transcode audio to CBR MP3 for more stable seeking behavior.
+
+- MP3 sources are probed for common VBR headers (`Xing`, `Info`, `VBRI`)
+- Sources that cannot be confidently identified are treated conservatively
+  and may be converted
+
+Set `skipCBR: true` if your files are already seek-accurate and you want to
+avoid transcoding.
+
+## LRCLIB Integration
+
+If `lyrics` is omitted and `lrclib` metadata is provided, the player attempts
+to fetch lyrics from LRCLIB.
+
+```ts
+const player = await LyricPlayer.create({
+  audio: "/song.mp3",
+  lrclib: {
+    trackName: "Creep",
+    artistName: "Radiohead",
+    albumName: "Pablo Honey",
+  },
+})
+
+player.on("instrumental", () => {
+  console.log("Track is marked instrumental")
+})
+```
+
+You can also use:
+
+```ts
+const player = await LyricPlayer.fromLrclib({
+  audio: "/song.mp3",
+  lrclib: {
+    trackName: "Creep",
+    artistName: "Radiohead",
+    albumName: "Pablo Honey",
+  },
+})
 ```
 
 ## API
 
-### `LyricPlayer.create(options)` (recommended)
+### `LyricPlayer.create(options)`
 
-Async factory that waits for CBR conversion (if needed) before returning
-a ready-to-use player.
+Recommended async factory. Returns a ready player.
 
-| Option       | Type                                                | Description                                      |
-| ------------ | --------------------------------------------------- | ------------------------------------------------ |
-| `audio`      | `string \| HTMLAudioElement`                        | Audio source URL, or an existing element         |
-| `lyrics`     | `string \| LyricLine[] \| ParsedLyrics \| LyricSource` | LRC text, JSON lines, or pre-parsed lyrics    |
-| `offsetMs`   | `number` (optional)                                 | Extra global offset on top of `[offset:]`        |
-| `skipCBR`    | `boolean` (optional, default `false`)               | Skip CBR conversion if your file is already CBR  |
-| `cbrBitrate` | `string` (optional, default `'128k'`)               | Target bitrate for CBR conversion              |
+### `new LyricPlayer(options)`
 
-### `new LyricPlayer(options)` (advanced)
+Immediate constructor. Call `await player.ready()` before relying on
+playback/lyrics state.
 
-Synchronous constructor. The instance is returned immediately but
-**is not ready until `await player.ready()` resolves**. Use this if you
-need to attach listeners before initialization completes.
+### Options
 
-```ts
-const player = new LyricPlayer({ audio: '/song.mp3', lyrics: lrcText });
-await player.ready();
-player.play();
-```
+| Option       | Type                                                   | Notes                                    |
+| ------------ | ------------------------------------------------------ | ---------------------------------------- |
+| `audio`      | `string \| HTMLAudioElement`                           | URL/source or existing element           |
+| `lyrics`     | `string \| LyricLine[] \| ParsedLyrics \| LyricSource` | Optional; if missing, LRCLIB can be used |
+| `offsetMs`   | `number`                                               | Added to parsed `[offset]` during init   |
+| `skipCBR`    | `boolean`                                              | Default `false`                          |
+| `cbrBitrate` | `string`                                               | Default `'128k'`                         |
+| `lrclib`     | `LrclibTrackInfo`                                      | Optional LRCLIB fetch metadata           |
 
-### Playback
+### Core Methods
 
-- `play()` / `pause()` / `toggle()` — delegate to the underlying audio element
-- `seek(seconds)` — jump to a specific time
-- `seekToLine(index)` — jump to the start of a given lyric line
-- `currentTime`, `duration`, `paused`, `volume` — pass-through getters/setters
+- `ready()`
+- `play()` / `pause()` / `toggle()`
+- `seek(seconds)` / `seekToLine(index)`
+- `setLyrics(source)`
+- `setOffset(ms)` (sets runtime offset directly)
+- `getCurrentLine()` / `getCurrentIndex()` / `getNextLine()`
+- `getCurrentToken()` / `getCurrentTokenIndex()`
+- `findLineIndexAtTime(seconds)`
+- `destroy()`
 
-### Lyrics
+### Properties
 
-- `lines: LyricLine[]` — all parsed lines, sorted by time
-- `metadata` — parsed `[ti]`/`[ar]`/`[al]`/`[by]`/`[offset]` tags
-- `getCurrentLine()` / `getCurrentIndex()` — active line right now
-- `getNextLine()` — line after the current one
-- `getCurrentToken()` / `getCurrentTokenIndex()` — active word, for
-  karaoke-style word highlighting (enhanced LRC only)
-- `findLineIndexAtTime(seconds)` — binary-search lookup at an arbitrary time,
-  without touching playback state
-- `setLyrics(...)` — swap in a new lyric source at runtime
-- `setOffset(ms)` — adjust global timing offset at runtime
+- `audio`
+- `lines`
+- `metadata`
+- `currentTime`
+- `duration`
+- `paused`
+- `volume`
 
 ### Events
 
-`on(event, handler)` / `off(event, handler)`:
+Use `on(event, handler)` and `off(event, handler)`.
 
-| Event        | Payload                                    |
-| ------------ | ------------------------------------------ |
-| `linechange` | `(line: LyricLine \| null, index: number)` |
-| `timeupdate` | `(currentTime: number)`                    |
-| `play`       | —                                          |
-| `pause`      | —                                          |
-| `ended`      | —                                          |
-| `error`      | `(event: Event)`                           |
+| Event          | Payload                                    |
+| -------------- | ------------------------------------------ |
+| `linechange`   | `(line: LyricLine \| null, index: number)` |
+| `timeupdate`   | `(currentTime: number)`                    |
+| `play`         | `()`                                       |
+| `pause`        | `()`                                       |
+| `ended`        | `()`                                       |
+| `error`        | `(event: Event)`                           |
+| `instrumental` | `()`                                       |
 
-## Example: word-by-word highlighting
+## Utility Exports
 
 ```ts
-player.on('timeupdate', () => {
-  const line = player.getCurrentLine();
-  const tokenIndex = player.getCurrentTokenIndex();
-
-  if (!line?.tokens) return;
-  renderLine(line.tokens.map((tok, i) => ({
-    text: tok.text,
-    active: i === tokenIndex,
-  })));
-});
+import {
+  parseLRC,
+  parseJSONLyrics,
+  searchLrclib,
+  useLyricPlayer,
+  useLrclibSearch,
+} from "lrc-audio-player"
 ```
 
-## Example: skip CBR for already-optimized files
+React-focused import path is also available:
 
 ```ts
-const player = await LyricPlayer.create({
-  audio: '/song-cbr.mp3',
-  lyrics: lrcText,
-  skipCBR: true, // No conversion — instant load
-});
+import { useLyricPlayer, useLrclibSearch } from "lrc-audio-player/react"
 ```
 
 ## Development
 
 ```bash
 npm install
-npm run build      # bundle to dist/ (cjs + esm + types)
-npm test           # run vitest
-npm run typecheck  # tsc --noEmit
+npm run build
+npm test
+npm run typecheck
 ```
 
 ## License
