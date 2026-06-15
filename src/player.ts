@@ -69,6 +69,7 @@ export class LyricPlayer {
 
   private _readyPromise: Promise<void>
   private _externalOffsetMs: number = 0
+  private _cbrObjectUrl?: string
 
   constructor(options: LyricPlayerOptions) {
     this._readyPromise = this.initialize(options)
@@ -143,6 +144,7 @@ export class LyricPlayer {
       const needsConversion = await this.detectNeedsCBR(audioSrc)
       if (needsConversion) {
         audioSrc = await this.convertToCBR(audioSrc, cbrBitrate)
+        this._cbrObjectUrl = audioSrc
       }
     }
 
@@ -205,8 +207,17 @@ export class LyricPlayer {
   /** Detect if file is VBR or lacks proper seek tables. */
   private async detectNeedsCBR(src: string): Promise<boolean> {
     try {
-      const file = await fetch(src).then((res) => res.blob())
-      return await isVBR(file)
+      const response = await fetch(src, { method: "HEAD" })
+      const contentType = response.headers.get("content-type") || ""
+
+      if (contentType.includes("audio/mpeg") || src.endsWith(".mp3")) {
+        const probe = await fetch(src, {
+          headers: { Range: "bytes=0-1023" },
+        }).then((res) => res.blob())
+        return await isVBR(probe)
+      }
+
+      return false
     } catch (e) {
       console.warn(
         "[lrc-audio-player] Failed to detect bitrate mode, assuming CBR is needed",
@@ -306,7 +317,9 @@ export class LyricPlayer {
 
   /** Adjust the global lyric offset (in milliseconds) at runtime. */
   setOffset(offsetMs: number): void {
-    this.offsetSeconds = offsetMs / 1000
+    this._externalOffsetMs = offsetMs
+    const tagOffsetMs = this.metadata?.offset ?? 0
+    this.offsetSeconds = (tagOffsetMs + offsetMs) / 1000
     this.currentIndex = -1
     this.handleTimeUpdate()
   }
@@ -453,16 +466,16 @@ export class LyricPlayer {
   private handleTimeUpdate = (): void => {
     const time = this.audio.currentTime
     const newIndex = this.findLineIndexAtTime(time)
-    const newTokenIndex = this.getCurrentTokenIndex()
 
     if (newIndex !== this.currentIndex) {
       this.currentIndex = newIndex
       this.emit("linechange", this.getCurrentLine(), newIndex)
     }
 
+    const newTokenIndex = this.getCurrentTokenIndex()
     if (newTokenIndex !== this.currentTokenIndex) {
       this.currentTokenIndex = newTokenIndex
-      this.emit("tokenchange", this.getCurrentLine(), this.currentIndex)
+      this.emit("tokenchange", this.getCurrentToken(), newTokenIndex)
     }
 
     this.emit("timeupdate", time)
@@ -472,8 +485,8 @@ export class LyricPlayer {
   destroy(): void {
     this.audio.removeEventListener("timeupdate", this.handleTimeUpdate)
     this.audio.pause()
-    if (this.audio.src.startsWith("blob:")) {
-      URL.revokeObjectURL(this.audio.src)
+    if (this._cbrObjectUrl) {
+      URL.revokeObjectURL(this._cbrObjectUrl)
     }
     this.listeners = {}
   }

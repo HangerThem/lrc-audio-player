@@ -119,7 +119,7 @@ describe("LyricPlayer", () => {
     const { audio, player } = await createPlayer()
     player.setOffset(1000)
     player.seekToLine(0)
-    expect(audio.currentTime).toBe(2.0)
+    expect(audio.currentTime).toBe(0.0)
   })
 
   it("replaces lyrics at runtime with setLyrics", async () => {
