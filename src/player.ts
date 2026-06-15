@@ -363,6 +363,12 @@ export class LyricPlayer {
   // Lyric lookup
   // ---------------------------------------------------------------------
 
+  /** The previous lyric line before the current one, if any. */
+  getPreviousLine(): LyricLine | null {
+    const prev = this.lines[this.currentIndex - 1]
+    return prev ?? null
+  }
+
   /** The currently active lyric line, or null if before the first line. */
   getCurrentLine(): LyricLine | null {
     return this.currentIndex >= 0 ? this.lines[this.currentIndex] : null
@@ -458,7 +464,6 @@ export class LyricPlayer {
       this.currentTokenIndex = newTokenIndex
       this.emit("tokenchange", this.getCurrentLine(), this.currentIndex)
     }
-      
 
     this.emit("timeupdate", time)
   }
