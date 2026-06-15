@@ -11,3 +11,4 @@ export type {
 } from "./types"
 export { searchLrclib, fetchFromLrclib } from "./lrclib"
 export type { LrclibTrackInfo, LrclibResult } from "./lrclib"
+export { isVBR, sampleFrameBitrates } from "./utils/audio"

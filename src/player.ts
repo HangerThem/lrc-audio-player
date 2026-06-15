@@ -9,6 +9,7 @@ import {
 } from "./types"
 import type { LrclibResult, LrclibTrackInfo } from "./lrclib"
 import { fetchFromLrclib } from "./lrclib"
+import { isVBR } from "./utils/audio"
 
 export type LyricSource =
   | { type: "lrc"; data: string }
@@ -40,7 +41,7 @@ export interface LyricPlayerOptions {
   lrclib?: LrclibTrackInfo
   /**
    * A previously fetched LRCLIB result. Takes priority over `lrclib` and
-   * skips any network request — lyrics and metadata are extracted directly.
+   * skips any network request - lyrics and metadata are extracted directly.
    */
   lrclibResult?: LrclibResult
 }
@@ -64,7 +65,9 @@ export class LyricPlayer {
   private offsetSeconds!: number
   private currentIndex = -1
   private listeners: Record<string, Set<Function>> = {}
+
   private _readyPromise: Promise<void>
+  private _externalOffsetMs: number = 0
 
   constructor(options: LyricPlayerOptions) {
     this._readyPromise = this.initialize(options)
@@ -87,7 +90,7 @@ export class LyricPlayer {
     }
 
     if (options.lrclibResult && !options.lyrics) {
-      // Use a pre-fetched result directly — no network request needed.
+      // Use a pre-fetched result directly - no network request needed.
       const result = options.lrclibResult
 
       lrclibMeta = {
@@ -152,6 +155,7 @@ export class LyricPlayer {
 
     const tagOffsetMs = parsed.metadata.offset ?? 0
     this.offsetSeconds = (tagOffsetMs + (options.offsetMs ?? 0)) / 1000
+    this._externalOffsetMs = options.offsetMs ?? 0
 
     this.audio.addEventListener("timeupdate", this.handleTimeUpdate)
     this.audio.addEventListener("play", () => this.emit("play"))
@@ -200,25 +204,15 @@ export class LyricPlayer {
   /** Detect if file is VBR or lacks proper seek tables. */
   private async detectNeedsCBR(src: string): Promise<boolean> {
     try {
-      const response = await fetch(src, { method: "HEAD" })
-      const contentType = response.headers.get("content-type") || ""
-
-      if (contentType.includes("audio/mpeg") || src.endsWith(".mp3")) {
-        const probe = await fetch(src, { headers: { Range: "bytes=0-1023" } })
-        const buffer = new Uint8Array(await probe.arrayBuffer())
-        return this.hasVBRHeader(buffer)
-      }
-
-      return true
-    } catch {
+      const file = await fetch(src).then((res) => res.blob())
+      return await isVBR(file)
+    } catch (e) {
+      console.warn(
+        "[lrc-audio-player] Failed to detect bitrate mode, assuming CBR is needed",
+        e,
+      )
       return true
     }
-  }
-
-  private hasVBRHeader(buffer: Uint8Array): boolean {
-    const decoder = new TextDecoder("latin1")
-    const header = decoder.decode(buffer)
-    return /Xing|Info|VBRI/.test(header)
   }
 
   /** Convert audio to CBR using ffmpeg.wasm. */
@@ -258,7 +252,7 @@ export class LyricPlayer {
     const bytes =
       typeof data === "string" ? new TextEncoder().encode(data) : data
     const blob = new Blob(
-      // @ts-ignore — Uint8Array is valid per spec, TS types are overly strict
+      // @ts-ignore - Uint8Array is valid per spec, TS types are overly strict
       [bytes],
       { type: "audio/mpeg" },
     )
@@ -301,6 +295,10 @@ export class LyricPlayer {
     ;(this.metadata as LyricMetadata) = parsed.metadata
     ;(this.lines as LyricLine[]).length = 0
     ;(this.lines as LyricLine[]).push(...parsed.lines)
+    if (parsed.metadata.offset !== undefined) {
+      this.offsetSeconds =
+        (parsed.metadata.offset + this._externalOffsetMs) / 1000
+    }
     this.currentIndex = -1
     this.handleTimeUpdate()
   }
@@ -337,7 +335,7 @@ export class LyricPlayer {
   /** Seek directly to the start of a given lyric line. */
   seekToLine(index: number): void {
     const line = this.lines[index]
-    if (line) this.seek(line.time + this.offsetSeconds)
+    if (line) this.seek(line.time - this.offsetSeconds)
   }
 
   get currentTime(): number {
@@ -461,6 +459,9 @@ export class LyricPlayer {
   destroy(): void {
     this.audio.removeEventListener("timeupdate", this.handleTimeUpdate)
     this.audio.pause()
+    if (this.audio.src.startsWith("blob:")) {
+      URL.revokeObjectURL(this.audio.src)
+    }
     this.listeners = {}
   }
 }

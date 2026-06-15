@@ -23,7 +23,7 @@ export interface UseLyricPlayerOptions extends Omit<
   lrclib?: LrclibTrackInfo
   /**
    * A previously fetched LRCLIB result. Takes priority over `lrclib` and
-   * skips any network request — lyrics and metadata are extracted directly.
+   * skips any network request - lyrics and metadata are extracted directly.
    * Pass a result from `useLrclibSearch` to let the user pick which track
    * to load without refetching.
    *
@@ -75,7 +75,7 @@ export interface UseLyricPlayerResult {
  * element via ref, and keeps the active lyric line in sync with React
  * state via the `linechange` event.
  *
- * Must be used in a Client Component — `LyricPlayer` requires a real
+ * Must be used in a Client Component - `LyricPlayer` requires a real
  * `HTMLAudioElement`, which doesn't exist during SSR.
  *
  * ```tsx
@@ -206,7 +206,7 @@ export function useLyricPlayer(
     options.skipCBR,
     options.cbrBitrate,
     options.lrclib,
-    options.lrclibResult, // stable ref from useState — re-initializes when user picks a result
+    options.lrclibResult, // stable ref from useState - re-initializes when user picks a result
   ])
 
   const seek = useCallback(
@@ -273,7 +273,7 @@ export function useLyricPlayer(
  *            onKeyDown={(e) => e.key === 'Enter' && search()} />
  *     <button onClick={search} disabled={!query || isLoading}>Search</button>
  *     {results.map((r) => (
- *       <div key={r.trackName}>{r.artistName} — {r.trackName}</div>
+ *       <div key={r.trackName}>{r.artistName} - {r.trackName}</div>
  *     ))}
  *   </>
  * )
