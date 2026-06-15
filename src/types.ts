@@ -62,6 +62,8 @@ export interface ParsedLyrics {
 export interface LyricPlayerEvents {
   /** Fired whenever the active lyric line index changes (including to -1). */
   linechange: (line: LyricLine | null, index: number) => void
+  /** Fired whenever the active lyric token index changes (including to -1). */
+  tokenchange: (line: LyricLine | null, lineIndex: number) => void
   /** Fired on every underlying `timeupdate` from the audio element. */
   timeupdate: (currentTime: number) => void
   /** Fired when playback starts. */

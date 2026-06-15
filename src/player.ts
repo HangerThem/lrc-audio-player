@@ -64,6 +64,7 @@ export class LyricPlayer {
 
   private offsetSeconds!: number
   private currentIndex = -1
+  private currentTokenIndex = -1
   private listeners: Record<string, Set<Function>> = {}
 
   private _readyPromise: Promise<void>
@@ -446,11 +447,18 @@ export class LyricPlayer {
   private handleTimeUpdate = (): void => {
     const time = this.audio.currentTime
     const newIndex = this.findLineIndexAtTime(time)
+    const newTokenIndex = this.getCurrentTokenIndex()
 
     if (newIndex !== this.currentIndex) {
       this.currentIndex = newIndex
       this.emit("linechange", this.getCurrentLine(), newIndex)
     }
+
+    if (newTokenIndex !== this.currentTokenIndex) {
+      this.currentTokenIndex = newTokenIndex
+      this.emit("tokenchange", this.getCurrentLine(), this.currentIndex)
+    }
+      
 
     this.emit("timeupdate", time)
   }
